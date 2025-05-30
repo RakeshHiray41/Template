@@ -6,6 +6,7 @@ const path = require("path");
 const cors = require("cors");
 const PizZip = require("pizzip");
 const Docxtemplater = require("docxtemplater");
+const ImageModule = require('docxtemplater-image-module-free');
 
 const app = express();
 const port = 3000;
@@ -25,6 +26,12 @@ const storage = multer.diskStorage({
 });
 
 const upload = multer({ storage: storage });
+
+// Update multer to accept both template and logo
+const uploadFields = upload.fields([
+  { name: 'template', maxCount: 1 },
+  { name: 'logo', maxCount: 1 }
+]);
 
 // Endpoint to handle document upload and extract placeholders
 app.post("/upload", upload.single("template"), async (req, res) => {
@@ -78,24 +85,45 @@ app.post("/upload", upload.single("template"), async (req, res) => {
   }
 });
 
-// Endpoint to generate document with filled placeholders
-app.post("/generate", async (req, res) => {
+// Endpoint to generate document with filled placeholders and logo
+app.post("/generate", uploadFields, async (req, res) => {
   try {
     const { filename, data } = req.body;
-    const templatePath = path.join(__dirname, "uploads", filename);    const template = await fs.readFile(templatePath);
+    const templatePath = path.join(__dirname, "uploads", filename);
+    const template = await fs.readFile(templatePath);
     const zip = new PizZip(template);
-    const doc = new Docxtemplater(zip);
-    
-    // Set the template data
-    doc.setData(data);
 
-    // Render the document
+    // Prepare image module options
+    let imageOpts = {
+      centered: false,
+      getImage: function(tagValue) {
+        // tagValue is the path to the image file
+        return fs.readFile(tagValue);
+      },
+      getSize: function() {
+        return [150, 150]; // width, height in px
+      }
+    };
+
+    // If a logo was uploaded, get its path
+    let logoPath = null;
+    if (req.files && req.files.logo && req.files.logo[0]) {
+      logoPath = req.files.logo[0].path;
+    }
+
+    // Add the logo path to the data if present
+    let docData = typeof data === 'string' ? JSON.parse(data) : data;
+    if (logoPath) {
+      docData.logo = logoPath;
+    }
+
+    const imageModule = new ImageModule(imageOpts);
+    const doc = new Docxtemplater(zip, { modules: [imageModule] });
+    doc.setData(docData);
     doc.render();
-    
-    const buffer = doc.getZip().generate({type: 'nodebuffer'});
+    const buffer = doc.getZip().generate({ type: 'nodebuffer' });
     const outputPath = path.join(__dirname, "uploads", `filled-${filename}`);
-    await fs.writeFile(outputPath, doc);
-
+    await fs.writeFile(outputPath, buffer);
     res.download(outputPath);
   } catch (error) {
     console.error(error);
