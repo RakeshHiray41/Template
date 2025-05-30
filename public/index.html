@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document Template Processor</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="file"],
+        input[type="text"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #placeholders {
+            margin-top: 20px;
+        }
+        .placeholder-input {
+            margin-bottom: 10px;
+            padding: 10px;
+            background-color: #f9f9f9;
+            border-radius: 4px;
+        }
+        .error-message {
+            background-color: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 10px 0;
+            border: 1px solid #ffcdd2;
+        }
+        .info-message {
+            background-color: #e3f2fd;
+            color: #1565c0;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Document Template Processor</h1>
+        
+        <div class="info-message">
+            Note: Your DOCX template should contain placeholders in the format {tagname}, for example: {name}, {date}, {address}
+        </div>
+        
+        <div class="form-group">
+            <label for="template">Upload DOCX Template:</label>
+            <input type="file" id="template" accept=".docx" />
+            <button onclick="uploadTemplate()">Upload</button>
+        </div>
+
+        <div id="error-container"></div>
+        <div id="placeholders"></div>
+        
+        <div id="generate" style="display: none;">
+            <button onclick="generateDocument()">Generate Document</button>
+        </div>
+    </div>
+
+    <script>
+        let currentFileName = '';
+        
+        function showError(message) {
+            const container = document.getElementById('error-container');
+            container.innerHTML = `<div class="error-message">${message}</div>`;
+            document.getElementById('placeholders').innerHTML = '';
+            document.getElementById('generate').style.display = 'none';
+        }
+
+        function clearError() {
+            document.getElementById('error-container').innerHTML = '';
+        }
+        
+        async function uploadTemplate() {
+            const fileInput = document.getElementById('template');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                showError('Please select a file first!');
+                return;
+            }
+
+            clearError();
+            const formData = new FormData();
+            formData.append('template', file);
+
+            try {
+                const response = await fetch('http://localhost:3000/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+                if (data.error) {
+                    showError(data.error);
+                    return;
+                }
+
+                currentFileName = data.uploadedFile;
+                displayPlaceholders(data.placeholders);
+            } catch (error) {
+                showError('Error uploading template: ' + error.message);
+            }
+        }
+
+        function displayPlaceholders(placeholders) {
+            const container = document.getElementById('placeholders');
+            container.innerHTML = '<h2>Fill in the placeholders:</h2>';
+
+            placeholders.forEach(placeholder => {
+                const div = document.createElement('div');
+                div.className = 'placeholder-input';
+                div.innerHTML = `
+                    <label for="${placeholder}">${placeholder}:</label>
+                    <input type="text" id="${placeholder}" class="placeholder-value" data-placeholder="${placeholder}">
+                `;
+                container.appendChild(div);
+            });
+
+            document.getElementById('generate').style.display = 'block';
+        }
+
+        async function generateDocument() {
+            const inputs = document.querySelectorAll('.placeholder-value');
+            const data = {};
+
+            inputs.forEach(input => {
+                data[input.dataset.placeholder] = input.value;
+            });
+
+            try {
+                const response = await fetch('http://localhost:3000/generate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        filename: currentFileName,
+                        data: data
+                    })
+                });
+
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `filled-${currentFileName}`;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    a.remove();
+                } else {
+                    throw new Error('Failed to generate document');
+                }
+            } catch (error) {
+                showError('Error generating document: ' + error.message);
+            }
+        }
+    </script>
+</body>
+</html>
